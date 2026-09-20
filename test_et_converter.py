@@ -3,7 +3,7 @@
 import unittest
 from pathlib import Path
 
-from et_converter import ConverterApp
+from et_converter import ConverterApp, file_group
 
 
 class FakeApp:
@@ -19,6 +19,11 @@ class FakeApp:
 
 
 class WorkerErrorTests(unittest.TestCase):
+    def test_wps_file_types_are_classified(self):
+        self.assertEqual(file_group(Path("book.et")), "spreadsheet")
+        self.assertEqual(file_group(Path("document.wps")), "document")
+        self.assertEqual(file_group(Path("slides.dps")), "presentation")
+
     def test_conversion_error_is_reported_after_worker_returns(self):
         """The deferred Tk callback must retain the exception text."""
         app = FakeApp()

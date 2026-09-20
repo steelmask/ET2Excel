@@ -1,6 +1,12 @@
-# ET 转 Excel 小工具
+# WPS 专有格式转 Office 小工具
 
-图形界面工具：选择 WPS 表格 `.et` 文件，转换并另存为 `.xlsx` 或 `.xls`。
+图形界面工具：将 WPS 专有格式转换为 Office 通用格式。
+
+| 源格式 | 输出格式 |
+| --- | --- |
+| WPS 表格 `.et` / `.ett` | Excel `.xlsx` / `.xls` |
+| WPS 文字 `.wps` / `.wpt` | Word `.docx` / `.doc` |
+| WPS 演示 `.dps` / `.dpt` | PowerPoint `.pptx` / `.ppt` |
 
 ## 使用前准备
 
@@ -15,8 +21,8 @@ py et_converter.py
 
 ## 使用方法
 
-1. 点击“选择文件”，选取 `.et` 文件。
-2. 选择 `.xlsx` 或 `.xls`。
+1. 点击“选择文件”，选取 WPS 专有格式文件。
+2. 选择对应的 Office 输出格式。
 3. 点击“转换并保存”，指定输出位置。
 
-`.xls` 是旧版 Excel 格式，有工作表行列数和格式能力限制；没有兼容旧系统的需求时，建议选择 `.xlsx`。
+旧版 `.xls`、`.doc`、`.ppt` 格式存在功能限制；没有兼容旧系统的需求时，建议选择 `.xlsx`、`.docx`、`.pptx`。
