@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 from pathlib import Path
 import tkinter as tk
@@ -153,6 +154,68 @@ def convert(source: Path, destination: Path) -> str:
             raise ConversionError(f"{wps_error}\n\n备用方案也失败：{libre_error}") from libre_error
 
 
+def preview_with_wps(source: Path) -> list[tuple[str, list[list[object]]]]:
+    """Read a small preview directly through WPS without changing the source."""
+    import win32com.client  # type: ignore[import-not-found]
+    import pythoncom  # type: ignore[import-not-found]
+
+    pythoncom.CoInitialize()
+    app = book = None
+    try:
+        app = win32com.client.DispatchEx("et.Application")
+        app.Visible = False
+        app.DisplayAlerts = False
+        book = app.Workbooks.Open(str(source.resolve()), ReadOnly=True)
+        result = []
+        for sheet in book.Worksheets:
+            values = sheet.UsedRange.Resize(100, 20).Value
+            if not isinstance(values, tuple):
+                values = ((values,),)
+            result.append((str(sheet.Name), [list(row) if isinstance(row, tuple) else [row] for row in values]))
+        return result
+    finally:
+        if book is not None:
+            try:
+                book.Close(SaveChanges=False)
+            except Exception:
+                pass
+        if app is not None:
+            try:
+                app.Quit()
+            except Exception:
+                pass
+        pythoncom.CoUninitialize()
+
+
+def preview_with_libreoffice(source: Path) -> list[tuple[str, list[list[object]]]]:
+    """Use LibreOffice as a read-only ET importer, then inspect its temporary XLSX."""
+    from openpyxl import load_workbook
+
+    with tempfile.TemporaryDirectory(prefix="et-preview-") as folder:
+        temporary_xlsx = Path(folder) / "preview.xlsx"
+        convert_with_libreoffice(source, temporary_xlsx)
+        workbook = load_workbook(temporary_xlsx, read_only=True, data_only=False)
+        try:
+            return [
+                (sheet.title, [list(row) for row in sheet.iter_rows(max_row=100, max_col=20, values_only=True)])
+                for sheet in workbook.worksheets
+            ]
+        finally:
+            workbook.close()
+
+
+def preview_et(source: Path) -> list[tuple[str, list[list[object]]]]:
+    if source.suffix.lower() not in (".et", ".ett"):
+        raise ConversionError("浏览功能仅支持 .et 或 .ett 文件。")
+    try:
+        return preview_with_wps(source)
+    except Exception as wps_error:
+        try:
+            return preview_with_libreoffice(source)
+        except Exception as libre_error:
+            raise ConversionError(f"无法浏览 ET 文件：{wps_error}\n\nLibreOffice 备用方案失败：{libre_error}") from libre_error
+
+
 class ConverterApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -183,6 +246,7 @@ class ConverterApp(tk.Tk):
 
         self.convert_button = ttk.Button(root, text="转换并保存", command=self.start_conversion)
         self.convert_button.grid(row=3, column=1, sticky="w", pady=(26, 12))
+        ttk.Button(root, text="浏览 ET 内容", command=self.start_preview).grid(row=3, column=2, sticky="w", pady=(26, 12))
         ttk.Label(root, textvariable=self.status, foreground="#444").grid(row=4, column=0, columnspan=3, sticky="w")
 
     def pick_source(self) -> None:
@@ -211,6 +275,51 @@ class ConverterApp(tk.Tk):
             if target_label == label:
                 self.format.set(extension)
                 return
+
+    def start_preview(self) -> None:
+        source = Path(self.source.get())
+        if not source.is_file():
+            messagebox.showwarning("尚未选择文件", "请先选择一个 ET 文件。")
+            return
+        if source.suffix.lower() not in (".et", ".ett"):
+            messagebox.showwarning("不支持浏览", "浏览功能目前仅支持 .et 或 .ett 文件。")
+            return
+        self.status.set("正在读取 ET 文件内容…")
+        threading.Thread(target=self._preview_worker, args=(source,), daemon=True).start()
+
+    def _preview_worker(self, source: Path) -> None:
+        try:
+            sheets = preview_et(source)
+            self.after(0, lambda data=sheets: self._show_preview(data))
+        except Exception as exc:
+            detail = str(exc)
+            self.after(0, lambda message=detail: messagebox.showerror("无法浏览", message))
+
+    def _show_preview(self, sheets: list[tuple[str, list[list[object]]]]) -> None:
+        self.status.set(f"已读取 {len(sheets)} 个工作表（每表最多显示 100 行 × 20 列）")
+        window = tk.Toplevel(self)
+        window.title("ET 文件浏览")
+        window.geometry("1000x620")
+        notebook = ttk.Notebook(window)
+        notebook.pack(fill="both", expand=True, padx=10, pady=10)
+        for name, rows in sheets:
+            page = ttk.Frame(notebook)
+            notebook.add(page, text=name)
+            columns = [f"C{number}" for number in range(1, 21)]
+            table = ttk.Treeview(page, columns=columns, show="headings")
+            for column in columns:
+                table.heading(column, text=column)
+                table.column(column, width=110, minwidth=70, stretch=True)
+            for row in rows:
+                table.insert("", "end", values=["" if value is None else str(value) for value in row])
+            vertical = ttk.Scrollbar(page, orient="vertical", command=table.yview)
+            horizontal = ttk.Scrollbar(page, orient="horizontal", command=table.xview)
+            table.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+            table.grid(row=0, column=0, sticky="nsew")
+            vertical.grid(row=0, column=1, sticky="ns")
+            horizontal.grid(row=1, column=0, sticky="ew")
+            page.rowconfigure(0, weight=1)
+            page.columnconfigure(0, weight=1)
 
     def start_conversion(self) -> None:
         source_text = self.source.get()

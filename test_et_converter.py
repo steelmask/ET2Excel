@@ -3,7 +3,7 @@
 import unittest
 from pathlib import Path
 
-from et_converter import ConverterApp, file_group, targets_for
+from et_converter import ConverterApp, ConversionError, file_group, preview_et, targets_for
 
 
 class FakeApp:
@@ -27,6 +27,10 @@ class WorkerErrorTests(unittest.TestCase):
     def test_excel_inputs_offer_native_et_output(self):
         self.assertEqual(targets_for(Path("workbook.xlsx")), {".et": "WPS 表格 (.et)"})
         self.assertIn(".xlsx", targets_for(Path("workbook.et")))
+
+    def test_preview_rejects_non_et_files_without_opening_them(self):
+        with self.assertRaises(ConversionError):
+            preview_et(Path("workbook.xlsx"))
 
     def test_conversion_error_is_reported_after_worker_returns(self):
         """The deferred Tk callback must retain the exception text."""
