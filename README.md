@@ -5,6 +5,7 @@
 | 源格式 | 输出格式 |
 | --- | --- |
 | WPS 表格 `.et` / `.ett` | Excel `.xlsx` / `.xls` |
+| Excel `.xlsx` / `.xls` | WPS 表格 `.et`（需 WPS 表格） |
 | WPS 文字 `.wps` / `.wpt` | Word `.docx` / `.doc` |
 | WPS 演示 `.dps` / `.dpt` | PowerPoint `.pptx` / `.ppt` |
 

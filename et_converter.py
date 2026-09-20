@@ -13,8 +13,9 @@ from tkinter import filedialog, messagebox, ttk
 
 FORMAT_GROUPS = {
     "spreadsheet": {
-        "label": "WPS 表格", "sources": (".et", ".ett"),
+        "label": "WPS / Excel 表格", "sources": (".et", ".ett", ".xlsx", ".xls"),
         "targets": {".xlsx": "Excel 工作簿 (.xlsx)", ".xls": "Excel 97-2003 (.xls)"},
+        "reverse_targets": {".et": "WPS 表格 (.et)"},
         "program_id": "et.Application", "com_formats": {".xlsx": 51, ".xls": 56},
         "lo_formats": {".xlsx": "Calc MS Excel 2007 XML", ".xls": "MS Excel 97"},
     },
@@ -40,6 +41,14 @@ def file_group(source: Path) -> str:
             return name
     supported = ", ".join(ext for group in FORMAT_GROUPS.values() for ext in group["sources"])
     raise ConversionError(f"不支持的文件类型：{extension or '无扩展名'}。支持：{supported}")
+
+
+def targets_for(source: Path) -> dict[str, str]:
+    """Return output options appropriate for the selected input format."""
+    group = FORMAT_GROUPS[file_group(source)]
+    if source.suffix.lower() in (".xlsx", ".xls"):
+        return group.get("reverse_targets", {})
+    return group["targets"]
 
 
 class ConversionError(RuntimeError):
@@ -70,7 +79,12 @@ def convert_with_wps(source: Path, destination: Path) -> None:
             book = app.Documents.Open(str(source.resolve()))
         else:
             book = app.Presentations.Open(str(source.resolve()), ReadOnly=True, Untitled=False, WithWindow=False)
-        book.SaveAs(str(destination.resolve()), FileFormat=group["com_formats"][destination.suffix.lower()])
+        if destination.suffix.lower() == ".et":
+            # Native WPS ET has no stable public numeric FileFormat constant.
+            # Let WPS select it from the requested extension.
+            book.SaveAs(str(destination.resolve()))
+        else:
+            book.SaveAs(str(destination.resolve()), FileFormat=group["com_formats"][destination.suffix.lower()])
     except Exception as exc:  # COM errors vary by installed WPS version
         raise ConversionError(f"WPS 转换失败：{exc}") from exc
     finally:
@@ -104,6 +118,8 @@ def convert_with_libreoffice(source: Path, destination: Path) -> None:
         raise ConversionError("找不到 WPS 或 LibreOffice。请安装 WPS 表格，或安装 LibreOffice 并加入 PATH。")
 
     group = FORMAT_GROUPS[file_group(source)]
+    if destination.suffix.lower() == ".et":
+        raise ConversionError("Excel 转 ET 需要安装 WPS 表格；LibreOffice 不能可靠写出 ET 格式。")
     # LibreOffice writes to an output directory rather than an exact filename.
     output_dir = destination.parent
     filter_name = group["lo_formats"][destination.suffix.lower()]
@@ -181,17 +197,17 @@ class ConverterApp(tk.Tk):
                 return
             self.source.set(filename)
             self.kind.set(group["label"])
-            targets = group["targets"]
+            targets = targets_for(source)
             self.format_box["values"] = list(targets.values())
             extension, label = next(iter(targets.items()))
             self.format_label.set(label)
             self.format.set(extension)
-            self.format_box.bind("<<ComboboxSelected>>", lambda _event: self._sync_extension(group))
+            self.format_box.bind("<<ComboboxSelected>>", lambda _event: self._sync_extension(targets))
             self.status.set("已选择文件，点击“转换并保存”继续")
 
-    def _sync_extension(self, group: dict) -> None:
+    def _sync_extension(self, targets: dict[str, str]) -> None:
         label = self.format_label.get()
-        for extension, target_label in group["targets"].items():
+        for extension, target_label in targets.items():
             if target_label == label:
                 self.format.set(extension)
                 return
@@ -205,15 +221,15 @@ class ConverterApp(tk.Tk):
         if not source.is_file():
             messagebox.showerror("文件不存在", "所选文件已不存在或无法访问。")
             return
-        group = FORMAT_GROUPS[file_group(source)]
+        targets = targets_for(source)
         extension = self.format.get()
         if not extension.startswith("."):
-            self._sync_extension(group)
+            self._sync_extension(targets)
             extension = self.format.get()
         destination_text = filedialog.asksaveasfilename(
             title="保存 Office 文件", defaultextension=extension,
             initialfile=f"{source.stem}{extension}",
-            filetypes=[(label, f"*{suffix}") for suffix, label in group["targets"].items()],
+            filetypes=[(label, f"*{suffix}") for suffix, label in targets.items()],
         )
         if not destination_text:
             return
